@@ -1,0 +1,19 @@
+[package]
+name = "tcp_lifetime"
+version = "0.1.0"
+authors = ["Eishun Kondoh <shun3382@gmail.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anyhow = "1.0"
+ctrlc = { version = "3.0", features = ["termination"] }
+plain = "0.2"
+chrono = "0.4"
+libc = "0.2"
+libbpf-rs = "0.10"
+structopt = "0.3"
+
+[build-dependencies]
+libbpf-cargo = "0.7"
