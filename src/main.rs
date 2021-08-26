@@ -11,6 +11,7 @@ use libc::{
 };
 use plain::Plain;
 use std::net::Ipv4Addr;
+use std::str;
 use structopt::StructOpt;
 
 mod bpf;
@@ -70,30 +71,45 @@ fn handle_event(_cpu: i32, data: &[u8]) {
     let daddr = Ipv4Addr::from(event.session.daddr);
     let dport = event.session.dport;
     let duration = event.duration / 1_000_000;
+    let pid = event.pid;
+    let comm = str::from_utf8(&event.task)
+        .unwrap()
+        .trim_matches(char::from(0));
     let src = format!("{}:{}", saddr, sport);
     let dst = format!("{}:{}", daddr, dport);
-    println!("{:26} | {:21} → {:21} | {:>8} ms", now, src, dst, duration)
+    println!(
+        "{:26} | {:^10} | {:^16} | {:21} → {:21} | {:>8} ms",
+        now, pid, comm, src, dst, duration
+    )
 }
 
 fn handle_lost_events(cpu: i32, count: u64) {
     eprintln!("Lost {} events on CPU {}", count, cpu)
 }
 
-fn main() -> Result<()> {
-    bump_memlock_rlimit()?;
+fn apply_options(skel_builder: &mut TcpLifetimeSkelBuilder) {
     let options = Command::from_args();
-    let mut skel_builder = TcpLifetimeSkelBuilder::default();
     if options.verbose {
         skel_builder.obj_builder.debug(true);
     }
+}
+
+fn load_skel<'a>() -> Result<TcpLifetimeSkel<'a>> {
+    let mut skel_builder = TcpLifetimeSkelBuilder::default();
+    apply_options(&mut skel_builder);
     let open_skel = skel_builder.open()?;
-    let mut skel = open_skel.load()?;
-    let prog_fd = skel.progs().measure_tcp_lifetime().fd();
-    attach_socket_filter(prog_fd)?;
+    let skel = open_skel.load()?;
+    Ok(skel)
+}
+
+fn print_header() {
     println!(
-        "{:^26} | {:^21} → {:^21} | {:^11}",
-        "time", "src", "dst", "duration"
+        "{:^26} | {:^10} | {:^16} | {:^21} → {:^21} | {:^11}",
+        "time", "pid", "comm", "src", "dst", "duration"
     );
+}
+
+fn poll_perf_map(skel: &mut TcpLifetimeSkel) -> Result<()> {
     let perf = PerfBufferBuilder::new(skel.maps_mut().events())
         .sample_cb(handle_event)
         .lost_cb(handle_lost_events)
@@ -101,4 +117,17 @@ fn main() -> Result<()> {
     loop {
         perf.poll(Duration::from_millis(100))?;
     }
+}
+
+fn main() -> Result<()> {
+    bump_memlock_rlimit()?;
+    let mut skel = load_skel()?;
+    let prog_fd = skel.progs().measure_tcp_lifetime().fd();
+    skel.attach()?;
+    //    skel.progs_mut()
+    //        .bpf_exit_tcp_v4_connect()
+    //        .attach_kprobe(true, "tcp_v4_connect")?;
+    attach_socket_filter(prog_fd)?;
+    print_header();
+    poll_perf_map(&mut skel)
 }
