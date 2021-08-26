@@ -124,9 +124,6 @@ fn main() -> Result<()> {
     let mut skel = load_skel()?;
     let prog_fd = skel.progs().measure_tcp_lifetime().fd();
     skel.attach()?;
-    //    skel.progs_mut()
-    //        .bpf_exit_tcp_v4_connect()
-    //        .attach_kprobe(true, "tcp_v4_connect")?;
     attach_socket_filter(prog_fd)?;
     print_header();
     poll_perf_map(&mut skel)
