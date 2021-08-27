@@ -114,6 +114,41 @@ int bpf_exit_tcp_v4_connect(struct pt_regs* ctx) {
   return 0;
 }
 
+SEC("kretprobe/inet_csk_accept")
+int bpf_call_inet_csk_accept(struct pt_regs* ctx) {
+  struct sock* sk = (void*)PT_REGS_RC(ctx);
+
+  if (!sk)
+    return 0;
+
+  u64 pid_tgid = bpf_get_current_pid_tgid();
+  u32 pid = pid_tgid >> 32;
+  u32 tid = pid_tgid;
+
+  struct sock_common sc;
+  bpf_probe_read(&sc, sizeof(sc), &sk->__sk_common);
+
+  u32 saddr = sc.skc_rcv_saddr;
+  u32 daddr = sc.skc_daddr;
+  u16 sport = sc.skc_num;
+  u16 dport = bpf_ntohs(sc.skc_dport);
+
+  struct session session = {
+      .saddr = bpf_ntohl(saddr),
+      .daddr = bpf_ntohl(daddr),
+      .sport = sport,
+      .dport = dport,
+  };
+
+  struct command comm = {};
+  bpf_get_current_comm(&comm.task, sizeof(comm.task));
+  comm.pid = pid;
+
+  bpf_map_update_elem(&commands, &session, &comm, 0);
+
+  return 0;
+}
+
 SEC("socket")
 int measure_tcp_lifetime(struct __sk_buff* skb) {
   struct iphdr ip4;
